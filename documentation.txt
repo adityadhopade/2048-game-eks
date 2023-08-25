@@ -1,0 +1,512 @@
+Deploy 2048 application ==> on EKS ==> Public dfacing Ip ==> Acccessed through load balancer ==> Ingress Controller ==> Create A VPC [App inside the private subnet]
+
+
+What is EKS ?
+Why need EKS ? 
+When to go to EKS ? Compared to Other Distributions ?
+
+
+Follow the Kubernetes Playlist of Abhishekh Veermala ==> 7 hrs video
+
+In K8 cluster => 2 components ==> Control Plane [master node] and Data Plane [Worker node]
+
+There can be a single master / multiple master and same for the worker nodes.
+
+For Highly Available Architecture generally a 3 node master in  kubernetes cluster architecture is followed.
+
+Way 1 to create a cluster 
+
+- # ec2 instances for master and 3 ec2 instances for the worker nodes.
+- Initially start with the installing of the master nodes containing
+	API, ETCD, Scheduler, Controller manager, Cloud Control manager, Controller Mangaer
+	
+They are user facing; sop when a user interacts with the application it always interacts with the control plane [master node] and from there the request goes to the data plane [worker nodes] or wherever the aplications are deployed
+
+Then we also need some installations on the worker nodes 
+	CNI [Container Network Interface]
+	Container Runtime
+	DNS
+	KubeProxy
+	
+We have to join the worker nodes with the master nodes also
+
+Its quite tedious process; and is ERROR PRONE 
+
+2nd Way ==> Using KOPS	
+
+Provide the AWS Credentials to the KOPS; it will generate the entire thing fro you ==> 3 master , 3 worker nodes ==> Pass it to the dev team here
+
+But after sometime if some of the master node went down;
+
+It can be due to the
+
+1 Certificate Expired ==> reattach the regnerated certificates
+2 API Server Down
+3 ETCD Crashed
+4. Scheduler not working
+
+This above issues to handle and resolve are quite tedious as we will have 100, 1000's of k8 cluster => need to setup some monitoring and different configuration rules.
+
+
+So whernver thee is manual activity==> AWS creates a managed service for us here in our case EKS
+
+EKS is managed control plane not data plane i.e. only managed Master Node NOT Worker Nodes
+
+But the worker nodes can be very easily attached to the Control plane [master node] using the ec2 instances or we can use fargate
+
+Do not have to bother about master nodes when EKS is there
+------------------------------------
+Fargate ==> It is the AWS Serverless Compute just like the lambda Functions [lambda Functions are defined for the small amount of the workloads] 
+
+Fargate are defined for running Containers
+
+EKS + Fargate gives us the Robust, Highly stable Highly Available architecture as the 
+
+EKS handles and manages the Control Plane
+Fargate handles and manages the data Plane
+
+Using this the overhead of Devops engineer gets less
+- Do not worry about the certificates getting expired
+- API Server down
+- ETCD getting crashed
+
+NOTE: Even if it crash if the SLA is breached then we can ask for compensation or whatever according to the contract with AWS.
+----------------------------------------------------------
+When using the EC2 instances for the worker nodes [data plane] then we need to configure the Ec2 for High avalability ==>With Autoscaler, adding monitoring
+
+-----------------------------------------------
+
+2 ways of intsalling k8 on AWS
+
+- Create Vms==> use tools like KOPS and manage master and worker nodes
+- Using EKS Services
+- On Premises install the K8 cluster on the data server ==> they are moving from onpremise to managed services i.e. cloud
+
+People are alos moving back due to cloud repatriation [very less number]
+
+
+---------------------------
+1 How to deploy on EKS cluster
+2.  
+
+-----------------------------------
+
+Refer the commands to creaet the eks cluster
+
+[Refer to the notes on the paper that we have written on August 24 evening]
+
+eksctl create cluster --name 2048-cluster --region us-east-1 --fargate
+
+eksctl ==> It will create the public and private subnets within the vpc; and in the private subnets we will keep or application
+
+It will take 10-15-20 minutes 
+
+
+We do have various resource types present in the Tab such as Pods, ReplicaSets, Deployments, SattefulSets etc.[We do not need to use the CLI for exploring these resources as its taken care by eksctl]
+
+In Overview ==>  Details Section it has multiple fields like API Server Endpoint, OpenID Connect provider URL, Certificate Authority, Cluster IAM Role ARN etc
+
+
+OpenID Connect provider URL ==> With this cluster we have created we can integrate any identity provider like Okta, Keycloak [LDAP where we have created all our users of organization].
+
+We can aattach these identity providers with many other things like eg. Single Sign on [SSO]
+
+AWS allows us to atach any identity providers; so that for this EKS we can manage IAM or any other identity provider we want to use we can use it comfortably.
+
+We are going to use the IAM identity provider here
+
+Pod wants to talk to s3 bucket, cloudwatch or any other service, eks control plane if we are not integrating with the IAM Identity Provider then how will we give access to the POD
+
+Whenever a resource in AWS wants to talk to s3 bucket ==> We need IAM Roles
+
+Similarly when we create the K8 pods we cam integrate the IAM roles here with the K8 service account; so that we can talk to any other services
+
+----------------------------------------
+
+In the compute tab we can see the Fargate Profiles getting added and there is alos nodegroups [If we want to add the ec2 instacnes that can be added via nodegroup but we do not want that for now]
+
+In the Fargate profile by default there are only 2 namespaces they are default, kube-system we can deploy PODs only on these 2 namespaces but we can add another profile to add new namespace. We are going to add new fargate-profile
+
+
+In Compute and Networking Tba we will not change anything and In Logging tab
+
+W can enable the Control Plane Logging of the API Server ==> magae Logging ==> Toggle API Server logging ==> hit save
+
+-----------------------------------------------
+Downlaod the kube config file => going agian and again for checking the resource of eks on AWS Console is tedious
+
+So we will download the kubeconfig file locally using eks 
+
+To get kubectl commandline
+
+aws eks update-kubeconfig --name 2048-cluster --region us-east-1
+
+-----------------------------------------------
+Let us now start to deploy the 2048 application POD using the deployment
+
+use the command below like
+
+eksctl create fargateprofile \ # creating the new fargate profile
+    --cluster 2048-cluster \ # name of the cluster 2048-cluster
+    --region us-east-1 \ # in which region cluster lies
+    --name alb-sample-app \ # providing name of profile as alb-sample-app
+    --namespace game-2048 # new namespace named gane-2048
+
+
+eksctl create fargateprofile --cluster 2048-cluster --region us-east-1 --name alb-sample-app --namespace game-2048 
+
+
+We can create the instacnes in the default, kube-system and alos the newly created game-2048 why we need to create instances in all of them ?
+
+Any thime we want to deploy on fargate we have to create the instances on all the namespaces. Its the pecularity of fargate
+
+In baremetal k8 ==> There is concept called as pod affinity or node affinity, anti-affinity
+
+------------------------------------------------------------
+Copy the command from Abhiskes repo for the 2048 app
+
+Command lies below [Run it]
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/examples/2048/2048_full.yaml
+
+Copy the link on the browser to view the yml file content
+
+https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/examples/2048/2048_full.yaml ==> this file has all the configuration related to deployments, service and ingress
+
+Contents of the file are as follows
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: game-2048
+--- # Deployment part
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: game-2048
+  name: deployment-2048
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app-2048
+  replicas: 5 # replica is 5; for multiple request its still able to tackle
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: app-2048
+    spec:
+      containers:
+      - image: public.ecr.aws/l6m2t8p7/docker-2048:latest # this is the container image
+        imagePullPolicy: Always
+        name: app-2048
+        ports:
+        - containerPort: 80
+--- # service part
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: game-2048
+  name: service-2048
+spec:
+  ports:
+    - port: 80
+      targetPort: 80 # make sure the target port is the containerPort of the Pod(in Deployemnt)
+      protocol: TCP
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: app-2048 # it should match the Deployemnet => metadata ==> labels ==> app.kubernetes.io/name: app-2048
+--- # Ingress part
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  namespace: game-2048
+  name: ingress-2048
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  ingressClassName: alb #going to use the application load balancer here
+  rules:
+    - http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: service-2048 # forward to 2048 ==> svc will forward to deployment available in the namespace game-2048
+              port:
+                number: 80
+                
+                
+Bit here we have not created the ingress controller yet so we need to create the ingress controller here  [without it the ingress resource will be of no use as per theory says]  
+
+kubectl get pods -n game-2048     # pods will be ready in some time
+
+kubectl get svc -n game-2048 # svc will be ready
+NAME           TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+service-2048   NodePort   10.100.129.34   <none>        80:31479/TCP   4m17s
+
+So in this it is of type nodeport anybody having access to the EC2 instance inside vpc or anybody access to VPC can have acccess to POD using the NODEIP Address followed by port[80:31479][even master and worker nodes also have access to POD]. But the external user dosent have the access to it.
+
+
+But our goal is have the external user [outside AWS] to have the access to our application which is on the POD
+
+ So we created the ingress resource
+ 
+ The command to see that 
+ 
+ kubectl get ingress -n game-2048
+ 
+ NAME           CLASS   HOSTS   ADDRESS   PORTS   AGE
+ingress-2048   alb     *                 80      9m18s
+
+Ingress is created ; class is alb; host can be anything[anybody trying to access the application load balancer is fine]
+
+but there is NO Address ? ==> Once we deploy the ingres controller there would be Address there
+
+
+Why us the Adress in the ingress useful ?
+To access the application as the external user we need to have the Address in Ingress  that can only be provided by the help  of Ingress Controller.
+
+--------------------------------------------------
+So we need to create the Ingress Controller
+
+Ingress Controller reads the Ingress Resource called ingress-2048 and then it will create the Load balancer for us and configuring the load balancer ==> Inside the ALB we need to configure the target group, on what port should it access pods; ==. All is taken care by Ingress Controller itself
+
+All that ingress Controller Needs is Ingress Resource
+----------------------------------------------------------
+
+But firstly before creating the Ingress Controller we need to configure the IAM OIDC provider Why ?
+
+The Ingress Controller [ALB Controller] they are nothing but the Kubernetes Pods and they need to talk to the AWS Services so they must need certain permissions for that and that is reolved using the IAM OIDC provider.
+
+Copy the command content from the file configure-oidc-connector from repository
+
+[IAM OIDC Providers used widely in Organizations]
+
+eksctl utils associate-iam-oidc-provider --cluster 2048-cluster --approve
+
+By the above command we are just giving our cluster [2048-cluster] approval to add the IAM OIDC Identity provider in it.
+
+
+--------------------------------------------------------------
+
+Then move on to the alb-controller-add-on repository  steps here
+
+Referenc for the alb controller
+
+https://github.com/kubernetes-sigs/aws-load-balancer-controller/blob/main/docs/install/iam_policy.json
+
+We are trying to install a ALB Controller => In K8 everycontroller is nothing but a POD => For this POd we are trying to grant the access to AWS Services such as ALB[Application Load balancer]
+
+
+For that we need to have proper permissions and accesss ==> so we need to create the IAM Roles and Policy for that.
+
+
+curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
+
+Refer the above link for the permissions ==> https://github.com/kubernetes-sigs/aws-load-balancer-controller/blob/main/docs/install/iam_policy.json [It is from the ALB Controller Documentatetion itself]
+------------------------------
+2nd command to create the iam policy
+
+aws iam create-policy \
+    --policy-name AWSLoadBalancerControllerIAMPolicy \
+    --policy-document file://iam_policy.json
+    
+
+aws iam create-policy --policy-name AWSLoadBalancerControllerIAMPolicy --policy-document file://iam_policy.json    
+
+------------------------------------
+
+3rd command ==> To create IAM Role
+
+eksctl create iamserviceaccount \
+  --cluster=<your-cluster-name> \ #replace your cluster name
+  --namespace=kube-system \
+  --name=aws-load-balancer-controller \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --attach-policy-arn=arn:aws:iam::<your-aws-account-id>:policy/ AWSLoadBalancerControllerIAMPolicy \ #replace your aws account id here
+  --approve
+
+eksctl create iamserviceaccount \
+  --cluster=2048-cluster \
+  --namespace=kube-system \
+  --name=aws-load-balancer-controller \
+  --role-name AmazonEKSLoadBalancerControllerRole \
+  --attach-policy-arn=arn:aws:iam::869190274350:policy/AWSLoadBalancerControllerIAMPolicy \
+  --approve
+
+eksctl create iamserviceaccount --cluster=2048-cluster --namespace=kube-system --name=aws-load-balancer-controller --role-name AmazonEKSLoadBalancerControllerRole --attach-policy-arn=arn:aws:iam::869190274350:policy/AWSLoadBalancerControllerIAMPolicy --approve
+
+NOTE: in organizations the developers create the iam service account ==. depending on requiremnet they have
+
+eg if dev want to talk to rds then they will create the service account ==> they will ask devops enginners to create roles with specific permissions 
+
+NOTE: Even if you fail to do so just hit the command twice
+
+------------------------------------------------
+
+Let us now proceed with the installation of the ALB controller
+
+We are going to use the Helm Charts
+
+HelmChart here will run the actual controller and it will use this service account to run the pods
+-------------------------------
+Add helm repo
+
+helm repo add eks https://aws.github.io/eks-charts
+
+Installed helm as it was not installed
+
+
+----------------------------------
+
+Run the commands below
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \            
+  -n kube-system \
+  --set clusterName=<your-cluster-name> \ #replace the cluster name
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --set region=<region> \ # replace the region us-east-1
+  --set vpcId=<your-vpc-id> # vpc id
+  
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system --set clusterName=2048-cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1--set vpcId=vpc-023a30ba6130666bf
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system \
+  --set clusterName=2048-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --set region=us-east-1 \
+  --set vpcId=vpc-023a30ba6130666bf
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system --set clusterName=2048-cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1 --set vpcId=vpc-023a30ba6130666bf
+
+vpc id ==> we can get it by the [eks cluster] ==> networking tab==> vpc-id
+
+region ==> us-east-1
+
+O/P
+
+NAME: aws-load-balancer-controller
+LAST DEPLOYED: Fri Aug 25 17:51:09 2023
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+AWS Load Balancer controller installed!
+
+-------------------------------------------------------------
+One final chek we have to do is that the Applcation Load balcncer is created and there is atleast 2 replicas of it
+
+kubectl get deployment -n kube-system aws-load-balancer-controller
+
+NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+aws-load-balancer-controller   2/2     2            2           3m9s
+ 
+It will create 2 replicas 1 in each avalibility zones; It will continiously watch for ALB resources in the 2 avalability zones.
+
+-------------------------------------------------------
+
+kubectl get pods -n kube-system 
+
+-----------------------------------
+
+To trouble shoot the deployemnst 
+
+kubectl edit deploy/aws-load-balancer-controller -n kube-system 
+
+After running it go to the status field ==> look at messages for errors
+
+
+if you found the error while creating the IAMRoles services ==> 
+
+Go to cloud formation ==> stacks ==> stack details ==> delete the stack that was creating the stack [Because of some intermitent network issue it might happen]
+
+
+----------------------------------------
+
+To delete the helmchart
+
+helm delete aws-load-balancer-controller -n kube-system
+
+
+----------------------------------------------
+
+kubectl get pods -n kube-system [2 instances of alb conroller should be present with coredns] ==> yes it does
+
+
+-----------------------------------------------
+
+Now let us see if the ALB Controller has created a ALB or not 
+
+Go to AWS console => EC2 =. Load balacner ==. we can see k8s-game2048-ingress2-5c7bbe2eb1 get created ==> It is created by the help of the ALB Controller
+
+ALB controller takes the  help of the ingress resource taht we provided
+
+kubectl get ingress -n game-2048
+
+
+NAME           CLASS   HOSTS   ADDRESS                                                                  PORTS   AGE
+ingress-2048   alb     *       k8s-game2048-ingress2-5c7bbe2eb1-594953319.us-east-1.elb.amazonaws.com   80      111m
+
+
+Now we got the address here so whats its use ?
+
+Adress is nothing but the laodbalancer ; which ingress controller has created watching this ingress resource
+
+Now the external user they acan connect to our application which is present in our Pod; which is inside the vpc and external user can still access it via the adress that is provided by the ingress loadbalancer [alb laod balancer] which is created due to presence of the ingress resource and as per the rules described in the file below link [contianing the service pods and ingress]
+
+https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/examples/2048/2048_full.yaml
+
+----------------------------------------------------------
+
+Nowe try hitting the browser and go to laod balacner section[newly created] ==> Copy its DNS name and comapre it to the Adress in the ingress then?
+
+they are both the same ==> It means the ingress sontroller has read the ingress resource and created the load balancers
+
+
+We need to wait till the Load balancers get active and then try hitting the DNS Link in here
+
+---------------------------------------
+DEMO Successful
+
+
+---------------------------------------
+
+
+Commands used are as follows
+
+ 1375  eksctl version
+ 1376  aws version
+ 1377  clear
+ 1378  aws configure
+ 1379  clear
+ 1380  eksctl create cluster --name 2048-cluster --region us-east-1 --fargate
+ 1381  aws eks update-kubeconfig --name 2048-cluster --region us-east-1
+ 1382  eksctl create fargateprofile \ 
+ 1383  eksctl create fargateprofile --cluster 2048-cluster --region us-east-1 --name alb-sample-app --namespace game-2048 
+ 1384  kubectl get pods -n game-2048 
+ 1385  kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/examples/2048/2048_full.yaml
+ 1386  kubectl get pods -n game-2048 
+ 1387  kubectl get svc -n game-2048
+ 1388  kubectl get ingress -n game-2048
+ 1389  eksctl utils associate-iam-oidc-provider --cluster 2048-cluster --approve
+ 1390  curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
+ 1391  aws iam create-policy --policy-name AWSLoadBalancerControllerIAMPolicy --policy-document file://iam_policy.json 
+ 1392  eksctl create iamserviceaccount --cluster=2048-cluster --namespace=kube-system --name=aws-load-balancer-controller --role-name AmazonEKSLoadBalancerControllerRole --attach-policy-arn=arn:aws:iam::869190274350:policy/AWSLoadBalancerControllerIAMPolicy --approve
+ 1393  helm repo add eks https://aws.github.io/eks-charts
+ 1394  helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system --set clusterName=2048-cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1--set vpcId=vpc-023a30ba6130666bf
+ 1395  helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system   --set clusterName=2048-cluster   --set serviceAccount.create=false   --set serviceAccount.name=aws-load-balancer-controller   --set region=us-east-1   --set vpcId=vpc-023a30ba6130666bf
+ 1396  helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system   --set clusterName=2048-cluster   --set serviceAccount.create=false   --set serviceAccount.name=aws-load-balancer-controller   --set region=us-east-1   --set vpcId=vpc-023a30ba6130666bf
+ 1397  helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system --set clusterName=2048-cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1--set vpcId=vpc-023a30ba6130666bf
+ 1398  helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system --set clusterName=2048-cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1 --set vpcId=vpc-023a30ba6130666bf
+ 1399  helm repo add eks https://aws.github.io/eks-charts
+ 1400  helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system --set clusterName=2048-cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1 --set vpcId=vpc-023a30ba6130666bf
+ 1401  kubectl get deployment -n kube-system aws-load-balancer-controller
+ 1402  kubectl get pods -n kube-system 
+ 1403  kubectl get pods -n kube-system
+ 1404  kubectl get ingress -n game-2048
+ 1405  history
+
